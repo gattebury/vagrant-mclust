@@ -1,44 +1,58 @@
 # --- configuration knobs ---
-DOMAIN  = 'mclust.net'   # default domain name
-MEMORY  = 1024           # default memory size
-NUMCPU  = 1              # default number of CPUs
-BOX     = 'puppetlabs/centos-7.0-64-puppet'
-BOX_URL = ''
-
-
-BOXEN = [
-  {:hostname => 'mc01', :ip => '172.20.1.11', :box => BOX, :ram => MEMORY, :cpus => NUMCPU},
-  {:hostname => 'mc02', :ip => '172.20.1.12', :box => BOX, :ram => MEMORY, :cpus => NUMCPU},
-  {:hostname => 'mc03', :ip => '172.20.1.13', :box => BOX, :ram => MEMORY, :cpus => NUMCPU},
-]
+DOMAIN  = "mclust.net"  # default domain name
+MEMORY  = 1024          # default memory size
+NUMCPU  = 1             # default number of CPUs
+#BOX     = "puppetlabs/centos-7.0-64-puppet"
+BOX     = "ubuntu/trusty64"
+BOX_URL = ""
+NETWORK = "172.21.1."   # net prefix
 
 
 # --- vagrant configuration ---
 
-Vagrant.configure('2') do |config|
-  BOXEN.each do |node|
+Vagrant.configure("2") do |config|
 
+    # hostmanager plugin
     config.hostmanager.enabled = true
     config.hostmanager.manage_host = false
     config.hostmanager.ignore_private_ip = false
     config.hostmanager.include_offline = true
 
-    config.vm.define node[:hostname] do |node_config|
-      node_config.vm.box = node[:box]
-      node_config.vm.hostname = node[:hostname] + '.' + DOMAIN
-      node_config.vm.network :private_network, ip: node[:ip]
-
-      if node[:fwdhost]
-        node_config.vm.network :forwarded_port, guest: node[:fwdguest], host: node[:fwdhost]
-      end
-
-      memory = node[:ram] ? node[:ram] : 256;
-      cpus = node[:cpus]
-      node_config.vm.provider :virtualbox do |vb|
-        vb.customize ['modifyvm', :id, '--name', node[:hostname]]
-        vb.customize ['modifyvm', :id, '--memory', memory.to_s]
-        vb.customize ['modifyvm', :id, '--cpus', cpus.to_s]
-      end
+    # head node
+    config.vm.define :head do |node_config|
+        node_config.vm.box = BOX
+        node_config.vm.hostname = "head" + "." + DOMAIN
+        node_config.vm.network :private_network, ip: NETWORK + "10"
+        node_config.vm.provider :virtualbox do |vb|
+            vb.memory = "1024"
+            vb.cpus = "2"
+        end
+        node_config.vm.provision :shell, path: "bootstrap-head.sh"
     end
-  end
+
+    # load balancer
+    config.vm.define :lb do |lb_config|
+        lb_config.vm.box = BOX
+        lb_config.vm.hostname = "lb" + "." + DOMAIN
+        lb_config.vm.network :private_network, ip: NETWORK + "9"
+        lb_config.vm.network "forwarded_port", guest: 80, host: 8080
+        lb_config.vm.provider :virtualbox do |vb|
+            vb.memory = "1024"
+        end
+    end
+
+    # worker nodes
+    # https://docs.vagrantup.com/v2/vagrantfile/tips.html
+    (1..2).each do |i|
+        config.vm.define "node#{i}" do |node|
+            node.vm.box = BOX
+            node.vm.hostname = "node#{i}" + "." + DOMAIN
+            node.vm.network :private_network, ip: NETWORK + "2#{i}"
+            node.vm.network "forwarded_port", guest: 80, host: "808#{i}"
+            node.vm.provider :virtualbox do |vb|
+                vb.memory = "1024"
+            end
+        end
+    end
+
 end
